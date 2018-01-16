@@ -79,8 +79,10 @@ private[akka] class ClusterReadView(cluster: Cluster) extends Closeable {
             case ClusterShuttingDown         ⇒
 
             case r: ReachableDataCenter ⇒
+              context.system.log.debug("ReachableDC: {}", r)
               _state = _state.withUnreachableDataCenters(_state.unreachableDataCenters - r.dataCenter)
             case r: UnreachableDataCenter ⇒
+              context.system.log.debug("UnreachableDC: {}", r)
               _state = _state.withUnreachableDataCenters(_state.unreachableDataCenters + r.dataCenter)
 
           }

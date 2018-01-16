@@ -129,10 +129,13 @@ abstract class MultiDcSplitBrainSpec
 
     runOn(memberNodes: _*) {
       probe.expectMsgType[ReachableDataCenter](25.seconds)
+      system.log.debug("Reachable data center received")
       cluster.unsubscribe(probe.ref)
       awaitAssert {
         cluster.state.unreachableDataCenters should ===(Set.empty)
+        system.log.debug("Cluster state: {}", cluster.state)
       }
+      system.log.debug("All data centers reachable")
     }
     enterBarrier(s"after-unsplit-verified-$barrierCounter")
     barrierCounter += 1
