@@ -152,33 +152,13 @@ trait ActorContext[T] {
   def getExecutionContext: ExecutionContextExecutor
 
   /**
-   * Create a child actor that will wrap messages such that other Actor’s
-   * protocols can be ingested by this Actor. You are strongly advised to cache
-   * these ActorRefs or to stop them when no longer needed.
-   *
-   * The name of the child actor will be composed of a unique identifier
-   * starting with a dollar sign to which the given `name` argument is
-   * appended, with an inserted hyphen between these two parts. Therefore
-   * the given `name` argument does not need to be unique within the scope
-   * of the parent actor.
-   */
-  def spawnAdapter[U](f: JFunction[U, T], name: String): ActorRef[U]
-
-  /**
-   * Create an anonymous child actor that will wrap messages such that other Actor’s
-   * protocols can be ingested by this Actor. You are strongly advised to cache
-   * these ActorRefs or to stop them when no longer needed.
-   */
-  def spawnAdapter[U](f: JFunction[U, T]): ActorRef[U]
-
-  /**
    * Perform a single request-response message interaction with another actor, and transform the messages back to
    * the protocol of this actor.
    *
    * The interaction has a timeout (to avoid a resource leak). If the timeout hits without any response it
    * will be passed as an [[java.util.concurrent.TimeoutException]] to the `applyToResponse` function.
    *
-   * For other messaging patterns with other actors, see [[spawnAdapter]].
+   * For other messaging patterns with other actors, see [[ActorContext#messageAdapter]].
    *
    * @param createREquest A function that creates a message for the other actor, containing the provided `ActorRef[Res]` that
    *                      the other actor can send a message back through.

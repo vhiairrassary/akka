@@ -4,15 +4,20 @@
 package akka.actor.typed
 package internal
 
+import java.util.ArrayList
+import java.util.Optional
+import java.util.function
 import java.util.function.BiFunction
-import java.util.{ ArrayList, Optional, function }
-
-import akka.annotation.InternalApi
-import akka.util.Timeout
 
 import scala.concurrent.ExecutionContextExecutor
 import scala.reflect.ClassTag
-import scala.util.{ Failure, Success, Try }
+import scala.util.Failure
+import scala.util.Success
+import scala.util.Try
+
+import akka.annotation.InternalApi
+import akka.util.OptionVal
+import akka.util.Timeout
 
 /**
  * INTERNAL API
@@ -55,17 +60,8 @@ import scala.util.{ Failure, Success, Try }
   override def spawnAnonymous[U](behavior: akka.actor.typed.Behavior[U]): akka.actor.typed.ActorRef[U] =
     spawnAnonymous(behavior, Props.empty)
 
-  override def spawnAdapter[U](f: U ⇒ T, name: String): ActorRef[U] =
-    internalSpawnAdapter(f, name)
-
-  override def spawnAdapter[U](f: U ⇒ T): ActorRef[U] =
-    internalSpawnAdapter(f, "")
-
-  override def spawnAdapter[U](f: java.util.function.Function[U, T]): akka.actor.typed.ActorRef[U] =
-    internalSpawnAdapter(f.apply, "")
-
-  override def spawnAdapter[U](f: java.util.function.Function[U, T], name: String): akka.actor.typed.ActorRef[U] =
-    internalSpawnAdapter(f.apply, name)
+  private[akka] override def spawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U] =
+    internalSpawnMessageAdapter(f, name)
 
   // Scala API impl
   override def ask[Req, Res](otherActor: ActorRef[Req])(createRequest: ActorRef[Res] ⇒ Req)(mapResponse: Try[Res] ⇒ T)(implicit responseTimeout: Timeout, classTag: ClassTag[Res]): Unit = {
@@ -84,9 +80,34 @@ import scala.util.{ Failure, Success, Try }
   }
 
   /**
-   * INTERNAL API: Needed to make Scala 2.12 compiler happy.
+   * INTERNAL API: Needed to make Scala 2.12 compiler happy if spawnMessageAdapter is overloaded for scaladsl/javadsl.
    * Otherwise "ambiguous reference to overloaded definition" because Function is lambda.
    */
-  @InternalApi private[akka] def internalSpawnAdapter[U](f: U ⇒ T, _name: String): ActorRef[U]
+  @InternalApi private[akka] def internalSpawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U]
+
+  private var transformerRef: OptionVal[ActorRef[Any]] = OptionVal.None
+  private var _messageTransformers: List[(Class[_], Any ⇒ T)] = Nil
+
+  override def messageAdapter[U: ClassTag](f: U ⇒ T): ActorRef[U] = {
+    val messageClass = implicitly[ClassTag[U]].runtimeClass
+    // replace existing transformer for same class, only one per class is supported to avoid unbounded growth
+    // in case "same" transformer is added repeatedly
+    _messageTransformers = (messageClass, f.asInstanceOf[Any ⇒ T]) ::
+      _messageTransformers.filterNot { case (cls, _) ⇒ cls == messageClass }
+    val ref = transformerRef match {
+      case OptionVal.Some(ref) ⇒ ref.asInstanceOf[ActorRef[U]]
+      case OptionVal.None ⇒
+        // Transform is not really a T, but that is erased
+        val ref = internalSpawnMessageAdapter[Any](msg ⇒ Transform(msg).asInstanceOf[T], "trf")
+        transformerRef = OptionVal.Some(ref)
+        ref
+    }
+    ref.asInstanceOf[ActorRef[U]]
+  }
+
+  /**
+   * INTERNAL API
+   */
+  @InternalApi private[akka] def messageTransformers: List[(Class[_], Any ⇒ T)] = _messageTransformers
 }
 

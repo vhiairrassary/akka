@@ -60,6 +60,7 @@ import akka.actor.typed.Behavior.UntypedBehavior
   }
   override private[akka] def internalSpawnAdapter[U](f: U ⇒ T, _name: String): ActorRef[U] = {
     val cell = untyped.asInstanceOf[akka.actor.ActorCell]
+    // FIXME we can apply the function inside the actor by wrapping the msg and f in an internal message understood by ActorAdapter
     val ref = cell.addFunctionRef((_, msg) ⇒ untyped.self ! f(msg.asInstanceOf[U]), _name)
     ActorRefAdapter[U](ref)
   }

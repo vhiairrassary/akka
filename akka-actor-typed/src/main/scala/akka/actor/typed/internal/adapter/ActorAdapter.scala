@@ -5,6 +5,8 @@ package akka.actor.typed
 package internal
 package adapter
 
+import scala.annotation.tailrec
+
 import akka.{ actor ⇒ a }
 import akka.annotation.InternalApi
 import akka.util.OptionVal
@@ -35,7 +37,10 @@ import akka.util.OptionVal
       next(Behavior.interpretSignal(behavior, ctx, msg), msg)
     case a.ReceiveTimeout ⇒
       next(Behavior.interpretMessage(behavior, ctx, ctx.receiveTimeoutMsg), ctx.receiveTimeoutMsg)
-    case msg: AskResponse[AnyRef, T] @unchecked ⇒ receive(msg.adapted)
+    case msg: AskResponse[AnyRef, T] @unchecked ⇒
+      receive(msg.adapted)
+    case Transform(msg) ⇒
+      transformAndHandle(msg)
     case msg: T @unchecked ⇒
       next(Behavior.interpretMessage(behavior, ctx, msg), msg)
   }
@@ -61,6 +66,23 @@ import akka.util.OptionVal
           behavior = Behavior.canonicalize(b, behavior, ctx)
       }
     }
+  }
+
+  private def transformAndHandle(msg: Any): Unit = {
+    @tailrec def handle(transformers: List[(Class[_], Any ⇒ T)]): Unit = {
+      transformers match {
+        case Nil ⇒
+          // no transformer function registered for message class
+          unhandled(msg)
+        case (clazz, f) :: tail ⇒
+          if (clazz.isAssignableFrom(msg.getClass)) {
+            val transformedMsg = f(msg)
+            next(Behavior.interpretMessage(behavior, ctx, transformedMsg), transformedMsg)
+          } else
+            handle(tail) // recursive
+      }
+    }
+    handle(ctx.messageTransformers)
   }
 
   override def unhandled(msg: Any): Unit = msg match {
