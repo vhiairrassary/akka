@@ -4,6 +4,9 @@
 package docs.akka.typed
 
 //#imports
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
 import akka.actor.typed.ActorRef
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.Behavior
@@ -11,7 +14,6 @@ import akka.actor.typed.Terminated
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
 import akka.testkit.typed.TestKit
-
 import scala.concurrent.Await
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -54,7 +56,7 @@ object IntroSpec {
 
     trait SessionCommand
     final case class PostMessage(message: String) extends SessionCommand
-    private final case class NotifyClient(message: MessagePosted)  extends SessionCommand
+    private final case class NotifyClient(message: MessagePosted) extends SessionCommand
     //#chatroom-protocol
     //#chatroom-behavior
 
@@ -66,9 +68,11 @@ object IntroSpec {
         msg match {
           case GetSession(screenName, client) ⇒
             // create a child actor for further interaction with the client
-            val session = ctx.spawn(session(screenName, client), name = screenName)
-            client ! SessionGranted(session)
-            chatRoom(session :: sessions)
+            val ses = ctx.spawn(
+              session(ctx.self, screenName, client),
+              name = URLEncoder.encode(screenName, StandardCharsets.UTF_8.name))
+            client ! SessionGranted(ses)
+            chatRoom(ses :: sessions)
           case PublishSessionMessage(screenName, message) ⇒
             val notification = NotifyClient(MessagePosted(screenName, message))
             sessions foreach (_ ! notification)
@@ -77,16 +81,16 @@ object IntroSpec {
       }
 
     private def session(
-                         room: ActorRef[PublishSessionMessage],
-                         screenName: String,
-                         client: ActorRef[SessionEvent]                         ): Behavior[SessionCommand] =
-      Behaviors.immutable { (ctx, msg) =>
+      room:       ActorRef[PublishSessionMessage],
+      screenName: String,
+      client:     ActorRef[SessionEvent]): Behavior[SessionCommand] =
+      Behaviors.immutable { (ctx, msg) ⇒
         msg match {
-          case PostMessage(message) =>
+          case PostMessage(message) ⇒
             // from client, publish to others via the room
             room ! PublishSessionMessage(screenName, message)
             Behaviors.same
-          case NotifyClient(message) =>
+          case NotifyClient(message) ⇒
             // published from the room
             client ! message
             Behaviors.same

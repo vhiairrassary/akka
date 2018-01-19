@@ -9,7 +9,6 @@ import scala.reflect.ClassTag
 import scala.util.Try
 
 import akka.actor.typed._
-import akka.actor.typed.javadsl.ActorContext
 import akka.annotation.ApiMayChange
 import akka.annotation.DoNotInherit
 import akka.annotation.InternalApi
@@ -152,13 +151,17 @@ trait ActorContext[T] { this: akka.actor.typed.javadsl.ActorContext[T] ⇒
    * starting with a dollar sign to which the given `name` argument is
    * appended, with an inserted hyphen between these two parts. Therefore
    * the given `name` argument does not need to be unique within the scope
-   * of the parent actor. The empty string is a valid name here and can be
-   * used for "anonymous" adapters.
+   * of the parent actor.
    *
    * The function is applied inside the "parent" actor and can safely access
    * state of the "parent".
    */
-  @InternalApi private[akka]  def spawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U]
+  @InternalApi private[akka] def spawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U]
+
+  /**
+   * INTERNAL API: See `spawnMessageAdapter` with name parameter
+   */
+  @InternalApi private[akka] def spawnMessageAdapter[U](f: U ⇒ T): ActorRef[U]
 
   /**
    * Create a message adapter that will convert or wrap messages such that other Actor’s
@@ -180,7 +183,7 @@ trait ActorContext[T] { this: akka.actor.typed.javadsl.ActorContext[T] ⇒
    * Message adapters don't have to stopped since they consume no resources other
    * than an entry in an internal `Map` and the number of adapters are bounded
    * since it's only possible to have one per message class.
-   **
+   * *
    * The function is running this actor and can safely access state of it.
    */
   def messageAdapter[U: ClassTag](f: U ⇒ T): ActorRef[U]

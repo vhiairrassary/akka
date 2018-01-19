@@ -4,6 +4,7 @@
 package akka.actor.typed
 package internal
 
+import java.util.function.{ Function ⇒ JFunction }
 import java.util.ArrayList
 import java.util.Optional
 import java.util.function
@@ -23,6 +24,9 @@ import akka.util.Timeout
  * INTERNAL API
  */
 @InternalApi private[akka] trait ActorContextImpl[T] extends ActorContext[T] with javadsl.ActorContext[T] with scaladsl.ActorContext[T] {
+
+  private var messageAdapterRef: OptionVal[ActorRef[Any]] = OptionVal.None
+  private var _messageAdapters: List[(Class[_], Any ⇒ T)] = Nil
 
   override def asJava: javadsl.ActorContext[T] = this
 
@@ -60,9 +64,6 @@ import akka.util.Timeout
   override def spawnAnonymous[U](behavior: akka.actor.typed.Behavior[U]): akka.actor.typed.ActorRef[U] =
     spawnAnonymous(behavior, Props.empty)
 
-  private[akka] override def spawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U] =
-    internalSpawnMessageAdapter(f, name)
-
   // Scala API impl
   override def ask[Req, Res](otherActor: ActorRef[Req])(createRequest: ActorRef[Res] ⇒ Req)(mapResponse: Try[Res] ⇒ T)(implicit responseTimeout: Timeout, classTag: ClassTag[Res]): Unit = {
     import akka.actor.typed.scaladsl.AskPattern._
@@ -79,27 +80,37 @@ import akka.util.Timeout
     }(responseTimeout, ClassTag[Res](resClass))
   }
 
+  private[akka] override def spawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U] =
+    internalSpawnMessageAdapter(f, name)
+
+  private[akka] override def spawnMessageAdapter[U](f: U ⇒ T): ActorRef[U] =
+    internalSpawnMessageAdapter(f, name = "")
+
   /**
    * INTERNAL API: Needed to make Scala 2.12 compiler happy if spawnMessageAdapter is overloaded for scaladsl/javadsl.
    * Otherwise "ambiguous reference to overloaded definition" because Function is lambda.
    */
   @InternalApi private[akka] def internalSpawnMessageAdapter[U](f: U ⇒ T, name: String): ActorRef[U]
 
-  private var transformerRef: OptionVal[ActorRef[Any]] = OptionVal.None
-  private var _messageTransformers: List[(Class[_], Any ⇒ T)] = Nil
-
   override def messageAdapter[U: ClassTag](f: U ⇒ T): ActorRef[U] = {
-    val messageClass = implicitly[ClassTag[U]].runtimeClass
-    // replace existing transformer for same class, only one per class is supported to avoid unbounded growth
-    // in case "same" transformer is added repeatedly
-    _messageTransformers = (messageClass, f.asInstanceOf[Any ⇒ T]) ::
-      _messageTransformers.filterNot { case (cls, _) ⇒ cls == messageClass }
-    val ref = transformerRef match {
+    val messageClass = implicitly[ClassTag[U]].runtimeClass.asInstanceOf[Class[U]]
+    internalMessageAdapter(messageClass, f)
+  }
+
+  override def messageAdapter[U](messageClass: Class[U], f: JFunction[U, T]): ActorRef[U] =
+    internalMessageAdapter(messageClass, f.apply)
+
+  private def internalMessageAdapter[U](messageClass: Class[U], f: U ⇒ T): ActorRef[U] = {
+    // replace existing adapter for same class, only one per class is supported to avoid unbounded growth
+    // in case "same" adapter is added repeatedly
+    _messageAdapters = (messageClass, f.asInstanceOf[Any ⇒ T]) ::
+      _messageAdapters.filterNot { case (cls, _) ⇒ cls == messageClass }
+    val ref = messageAdapterRef match {
       case OptionVal.Some(ref) ⇒ ref.asInstanceOf[ActorRef[U]]
       case OptionVal.None ⇒
-        // Transform is not really a T, but that is erased
-        val ref = internalSpawnMessageAdapter[Any](msg ⇒ Transform(msg).asInstanceOf[T], "trf")
-        transformerRef = OptionVal.Some(ref)
+        // AdaptMessage is not really a T, but that is erased
+        val ref = internalSpawnMessageAdapter[Any](msg ⇒ AdaptWithRegisteredMessageAdapter(msg).asInstanceOf[T], "adapter")
+        messageAdapterRef = OptionVal.Some(ref)
         ref
     }
     ref.asInstanceOf[ActorRef[U]]
@@ -108,6 +119,6 @@ import akka.util.Timeout
   /**
    * INTERNAL API
    */
-  @InternalApi private[akka] def messageTransformers: List[(Class[_], Any ⇒ T)] = _messageTransformers
+  @InternalApi private[akka] def messageAdapters: List[(Class[_], Any ⇒ T)] = _messageAdapters
 }
 

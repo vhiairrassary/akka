@@ -37,12 +37,23 @@ import akka.util.OptionVal
       next(Behavior.interpretSignal(behavior, ctx, msg), msg)
     case a.ReceiveTimeout ⇒
       next(Behavior.interpretMessage(behavior, ctx, ctx.receiveTimeoutMsg), ctx.receiveTimeoutMsg)
-    case msg: AskResponse[AnyRef, T] @unchecked ⇒
-      receive(msg.adapted)
-    case Transform(msg) ⇒
-      transformAndHandle(msg)
+    case wrapped: AskResponse[Any, T] @unchecked ⇒
+      handleMessage(wrapped.adapted)
+    case wrapped: AdaptMessage[Any, T] @unchecked ⇒
+      wrapped.adapted match {
+        case AdaptWithRegisteredMessageAdapter(msg) ⇒
+          adaptAndHandle(msg)
+        case msg: T @unchecked ⇒
+          handleMessage(msg)
+      }
+    case AdaptWithRegisteredMessageAdapter(msg) ⇒
+      adaptAndHandle(msg)
     case msg: T @unchecked ⇒
-      next(Behavior.interpretMessage(behavior, ctx, msg), msg)
+      handleMessage(msg)
+  }
+
+  private def handleMessage(msg: T): Unit = {
+    next(Behavior.interpretMessage(behavior, ctx, msg), msg)
   }
 
   private def next(b: Behavior[T], msg: Any): Unit = {
@@ -68,21 +79,21 @@ import akka.util.OptionVal
     }
   }
 
-  private def transformAndHandle(msg: Any): Unit = {
-    @tailrec def handle(transformers: List[(Class[_], Any ⇒ T)]): Unit = {
-      transformers match {
+  private def adaptAndHandle(msg: Any): Unit = {
+    @tailrec def handle(adapters: List[(Class[_], Any ⇒ T)]): Unit = {
+      adapters match {
         case Nil ⇒
-          // no transformer function registered for message class
+          // no adapter function registered for message class
           unhandled(msg)
         case (clazz, f) :: tail ⇒
           if (clazz.isAssignableFrom(msg.getClass)) {
-            val transformedMsg = f(msg)
-            next(Behavior.interpretMessage(behavior, ctx, transformedMsg), transformedMsg)
+            val adaptedMsg = f(msg)
+            handleMessage(adaptedMsg)
           } else
             handle(tail) // recursive
       }
     }
-    handle(ctx.messageTransformers)
+    handle(ctx.messageAdapters)
   }
 
   override def unhandled(msg: Any): Unit = msg match {

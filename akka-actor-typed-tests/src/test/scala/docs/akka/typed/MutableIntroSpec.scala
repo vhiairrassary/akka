@@ -4,11 +4,13 @@
 package docs.akka.typed
 
 //#imports
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
 import akka.actor.typed._
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.ActorContext
 import akka.testkit.typed.TestKit
-
 import scala.concurrent.duration._
 import scala.concurrent.Await
 //#imports
@@ -35,7 +37,7 @@ object MutableIntroSpec {
 
     trait SessionCommand
     final case class PostMessage(message: String) extends SessionCommand
-    private final case class NotifyClient(message: MessagePosted)  extends SessionCommand
+    private final case class NotifyClient(message: MessagePosted) extends SessionCommand
     //#chatroom-protocol
     //#chatroom-behavior
 
@@ -49,9 +51,11 @@ object MutableIntroSpec {
         msg match {
           case GetSession(screenName, client) ⇒
             // create a child actor for further interaction with the client
-            val session = ctx.spawn(session(screenName, client), name = screenName)
-            client ! SessionGranted(session)
-            sessions = session :: sessions
+            val ses = ctx.spawn(
+              session(ctx.self, screenName, client),
+              name = URLEncoder.encode(screenName, StandardCharsets.UTF_8.name))
+            client ! SessionGranted(ses)
+            sessions = ses :: sessions
             this
           case PublishSessionMessage(screenName, message) ⇒
             val notification = NotifyClient(MessagePosted(screenName, message))
@@ -62,16 +66,16 @@ object MutableIntroSpec {
     }
 
     private def session(
-                         room: ActorRef[PublishSessionMessage],
-                         screenName: String,
-                         client: ActorRef[SessionEvent]                         ): Behavior[SessionCommand] =
-      Behaviors.immutable { (ctx, msg) =>
+      room:       ActorRef[PublishSessionMessage],
+      screenName: String,
+      client:     ActorRef[SessionEvent]): Behavior[SessionCommand] =
+      Behaviors.immutable { (ctx, msg) ⇒
         msg match {
-          case PostMessage(message) =>
+          case PostMessage(message) ⇒
             // from client, publish to others via the room
             room ! PublishSessionMessage(screenName, message)
             Behaviors.same
-          case NotifyClient(message) =>
+          case NotifyClient(message) ⇒
             // published from the room
             client ! message
             Behaviors.same

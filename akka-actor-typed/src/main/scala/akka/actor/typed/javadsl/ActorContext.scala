@@ -152,6 +152,31 @@ trait ActorContext[T] {
   def getExecutionContext: ExecutionContextExecutor
 
   /**
+   * Create a message adapter that will convert or wrap messages such that other Actor’s
+   * protocols can be ingested by this Actor.
+   *
+   * You can register several message adapters for different message classes.
+   * It's only possible to have one message adapter per message class to make sure
+   * that the number of adapters are not growing unbounded if registered repeatedly.
+   * That also means that a registered adapter will replace an existing adapter for
+   * the same message class.
+   *
+   * A message adapter will be used the message class matches the given class or
+   * is a subclass thereof. The registered adapters are tried in reverse order of
+   * their registration order, i.e. the last registered first.
+   *
+   * A message adapter (and the returned `ActorRef`) has the same lifecycle as
+   * this actor. It's recommended to register the adapters in a top level
+   * `Behaviors.deferred` but it's possible to register them later also if needed.
+   * Message adapters don't have to stopped since they consume no resources other
+   * than an entry in an internal `Map` and the number of adapters are bounded
+   * since it's only possible to have one per message class.
+   * *
+   * The function is running this actor and can safely access state of it.
+   */
+  def messageAdapter[U](messageClass: Class[U], f: JFunction[U, T]): ActorRef[U]
+
+  /**
    * Perform a single request-response message interaction with another actor, and transform the messages back to
    * the protocol of this actor.
    *
@@ -160,7 +185,7 @@ trait ActorContext[T] {
    *
    * For other messaging patterns with other actors, see [[ActorContext#messageAdapter]].
    *
-   * @param createREquest A function that creates a message for the other actor, containing the provided `ActorRef[Res]` that
+   * @param createRequest A function that creates a message for the other actor, containing the provided `ActorRef[Res]` that
    *                      the other actor can send a message back through.
    * @param applyToResponse Transforms the response from the `otherActor` into a message this actor understands.
    *                        Will be invoked with either the response message or an AskTimeoutException failed or
